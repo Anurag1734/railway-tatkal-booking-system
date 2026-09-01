@@ -4,12 +4,11 @@ import com.railway.tatkal.auth.dto.LoginRequest;
 import com.railway.tatkal.auth.dto.RegisterRequest;
 import com.railway.tatkal.auth.service.AuthService;
 import com.railway.tatkal.user.entity.User;
-import com.railway.tatkal.auth.dto.LoginRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.GetMapping;
+// import org.springframework.web.bind.annotation.GetMapping;
 
 @RestController
 @RequestMapping("/api/v1/auth")
