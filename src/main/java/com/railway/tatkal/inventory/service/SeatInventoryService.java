@@ -11,6 +11,7 @@ import com.railway.tatkal.train.repository.TrainRunRepository;
 import com.railway.tatkal.common.exception.SeatNotAvailableException;
 import com.railway.tatkal.user.entity.User;
 import com.railway.tatkal.user.repository.UserRepository;
+import com.railway.tatkal.lock.DistributedLockService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.time.Duration;
 
 @Service
 public class SeatInventoryService {
@@ -28,17 +30,20 @@ public class SeatInventoryService {
         private final SeatRepository seatRepository;
         private final TrainRunRepository trainRunRepository;
         private final UserRepository userRepository;
+        private final DistributedLockService distributedLockService;
 
         public SeatInventoryService(
                 SeatInventoryRepository seatInventoryRepository,
                 SeatRepository seatRepository,
                 TrainRunRepository trainRunRepository,
-                UserRepository userRepository
+                UserRepository userRepository,
+                DistributedLockService distributedLockService
         ) {
         this.seatInventoryRepository = seatInventoryRepository;
         this.seatRepository = seatRepository;
         this.trainRunRepository = trainRunRepository;
         this.userRepository = userRepository;
+        this.distributedLockService = distributedLockService;
         }
 
     @Transactional
@@ -110,13 +115,31 @@ public class SeatInventoryService {
         @Transactional
         public SeatInventoryResponse holdSeat(Long trainRunId, Long seatId) {
 
+        String lockKey =
+                "seat-lock:" + trainRunId + ":" + seatId;
+
+        String lockToken =
+                distributedLockService.tryLock(
+                        lockKey,
+                        Duration.ofSeconds(10)
+                );
+
+        if (lockToken == null) {
+                throw new SeatNotAvailableException(
+                        "Seat is currently being processed"
+                );
+        }
+
+        try {
+
                 Authentication authentication =
                         SecurityContextHolder.getContext().getAuthentication();
 
                 String email = authentication.getName();
 
                 User user = userRepository.findByEmail(email)
-                        .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                        .orElseThrow(() ->
+                                new IllegalArgumentException("User not found"));
 
                 SeatInventory inventory =
                         seatInventoryRepository
@@ -136,12 +159,23 @@ public class SeatInventoryService {
                 );
                 }
 
-                inventory.hold(user, LocalDateTime.now().plusMinutes(5));
+                inventory.hold(
+                        user,
+                        LocalDateTime.now().plusMinutes(5)
+                );
 
                 SeatInventory saved =
                         seatInventoryRepository.save(inventory);
 
                 return toResponse(saved);
+
+        } finally {
+
+                distributedLockService.unlock(
+                        lockKey,
+                        lockToken
+                );
+        }
         }
 
     @Transactional

@@ -58,6 +58,8 @@ public class AuthService {
 
         public LoginResult login(LoginRequest request) {
 
+        User user = userRepository.findByEmail(request.email())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         request.email(),
@@ -65,17 +67,9 @@ public class AuthService {
                 )
         );
 
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() ->
-                        new UsernameNotFoundException("User not found")
-                );
-
         String accessToken = jwtService.generateToken(user.getEmail());
 
-        return new LoginResult(
-                user.getId(),
-                accessToken
-        );
+        return new LoginResult(user.getId(), accessToken);
 }
 
         public record LoginResult(

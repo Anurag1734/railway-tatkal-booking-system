@@ -13,6 +13,7 @@ import com.railway.tatkal.train.entity.TrainRun;
 import com.railway.tatkal.booking.repository.BookingPassengerRepository;
 import com.railway.tatkal.booking.repository.BookingRepository;
 import com.railway.tatkal.booking.repository.SeatAllocationRepository;
+import com.railway.tatkal.common.exception.SeatNotAvailableException;
 import com.railway.tatkal.inventory.repository.SeatInventoryRepository;
 import com.railway.tatkal.station.repository.StationRepository;
 import com.railway.tatkal.train.repository.TrainRunRepository;
@@ -20,11 +21,14 @@ import com.railway.tatkal.user.entity.User;
 import com.railway.tatkal.user.repository.UserRepository;
 import com.railway.tatkal.train.entity.TrainStop;
 import com.railway.tatkal.train.repository.TrainStopRepository;
+import com.railway.tatkal.lock.DistributedLockService;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -33,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Duration;
 
 @Service
 public class BookingService {
@@ -45,6 +50,7 @@ public class BookingService {
     private final TrainRunRepository trainRunRepository;
     private final StationRepository stationRepository;
     private final TrainStopRepository trainStopRepository;
+    private final DistributedLockService distributedLockService;
 
     public BookingService(
             BookingRepository bookingRepository,
@@ -54,7 +60,8 @@ public class BookingService {
             UserRepository userRepository,
             TrainRunRepository trainRunRepository,
             StationRepository stationRepository,
-            TrainStopRepository trainStopRepository
+            TrainStopRepository trainStopRepository,
+            DistributedLockService distributedLockService
     ) {
         this.bookingRepository = bookingRepository;
         this.bookingPassengerRepository = bookingPassengerRepository;
@@ -64,6 +71,7 @@ public class BookingService {
         this.trainRunRepository = trainRunRepository;
         this.stationRepository = stationRepository;
         this.trainStopRepository = trainStopRepository;
+        this.distributedLockService = distributedLockService;
     }
 
     @Transactional
@@ -156,6 +164,13 @@ public class BookingService {
         // 7. Verify that every seat is actively held by this user
         LocalDateTime now = LocalDateTime.now();
 
+        inventories.sort(
+                (a, b) -> Long.compare(
+                        a.getSeat().getId(),
+                        b.getSeat().getId()
+                )
+        );
+        
         for (SeatInventory inventory : inventories) {
 
             if (inventory.getStatus() != SeatStatus.HELD) {
@@ -225,44 +240,138 @@ public class BookingService {
         }
 
         // 11. Create seat allocations and confirm inventory
-        List<Long> allocatedSeatIds = new ArrayList<>();
+        List<String> lockKeys = new ArrayList<>();
+        List<String> lockTokens = new ArrayList<>();
 
-        for (SeatInventory inventory : inventories) {
+        try {
 
-            var seat = inventory.getSeat();
+            // Acquire locks for all seats first
+            for (SeatInventory inventory : inventories) {
 
-            SeatAllocation allocation = new SeatAllocation(
-                    savedBooking,
-                    seat,
-                    seat.getSeatNumber(),
-                    seat.getCoach().getId(),
-                    seat.getBerthType(),
-                    "CONFIRMED"
+                Long seatId = inventory.getSeat().getId();
+
+                String lockKey =
+                        "seat-lock:"
+                                + request.trainRunId()
+                                + ":"
+                                + seatId;
+
+                String lockToken =
+                        distributedLockService.tryLock(
+                                lockKey,
+                                Duration.ofSeconds(10)
+                        );
+
+                if (lockToken == null) {
+                    throw new SeatNotAvailableException(
+                            "Seat is currently being processed"
+                    );
+                }
+
+                lockKeys.add(lockKey);
+                lockTokens.add(lockToken);
+            }
+
+            // All locks acquired — now modify the seats
+            List<Long> allocatedSeatIds = new ArrayList<>();
+
+            for (SeatInventory inventory : inventories) {
+
+                var seat = inventory.getSeat();
+
+                // Re-check state after acquiring the lock
+                if (inventory.getStatus() != SeatStatus.HELD) {
+                    throw new SeatNotAvailableException(
+                            "Seat is no longer held"
+                    );
+                }
+
+                if (inventory.getHeldUntil() == null
+                        || !inventory.getHeldUntil().isAfter(now)) {
+
+                    throw new IllegalStateException(
+                            "Seat hold has expired"
+                    );
+                }
+
+                if (inventory.getHeldByUser() == null
+                        || !inventory.getHeldByUser().getId().equals(user.getId())) {
+
+                    throw new IllegalStateException(
+                            "Seat is held by another user"
+                    );
+                }
+
+                SeatAllocation allocation = new SeatAllocation(
+                        savedBooking,
+                        seat,
+                        seat.getSeatNumber(),
+                        seat.getCoach().getId(),
+                        seat.getBerthType(),
+                        "CONFIRMED"
+                );
+
+                seatAllocationRepository.save(allocation);
+
+                inventory.confirmBooking(user, now);
+
+                allocatedSeatIds.add(seat.getId());
+            }
+
+            // Confirm booking
+            savedBooking.confirm();
+
+            bookingRepository.save(savedBooking);
+
+            /*
+            * Release Redis locks only after the database transaction
+            * has completed.
+            */
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+
+                        @Override
+                        public void afterCompletion(int status) {
+
+                            for (int i = lockKeys.size() - 1; i >= 0; i--) {
+
+                                distributedLockService.unlock(
+                                        lockKeys.get(i),
+                                        lockTokens.get(i)
+                                );
+                            }
+                        }
+                    }
             );
 
-            seatAllocationRepository.save(allocation);
+            return new BookingResponse(
+                    savedBooking.getId(),
+                    savedBooking.getBookingReference(),
+                    savedBooking.getTrainRun().getId(),
+                    savedBooking.getJourneyDate(),
+                    savedBooking.getSourceStation().getId(),
+                    savedBooking.getDestinationStation().getId(),
+                    savedBooking.getStatus(),
+                    savedBooking.getTotalAmount(),
+                    allocatedSeatIds
+            );
 
-            inventory.confirmBooking(user, now);
+        } catch (RuntimeException e) {
 
-            allocatedSeatIds.add(seat.getId());
+            /*
+            * If lock acquisition or processing fails before the
+            * transaction completes, release every lock acquired so far.
+            */
+            for (int i = lockKeys.size() - 1; i >= 0; i--) {
+
+                distributedLockService.unlock(
+                        lockKeys.get(i),
+                        lockTokens.get(i)
+                );
+            }
+
+            throw e;
         }
-
-        // 12. Confirm booking
-        savedBooking.confirm();
-
-        bookingRepository.save(savedBooking);
-
-        return new BookingResponse(
-                savedBooking.getId(),
-                savedBooking.getBookingReference(),
-                trainRun.getId(),
-                savedBooking.getJourneyDate(),
-                sourceStation.getId(),
-                destinationStation.getId(),
-                savedBooking.getStatus(),
-                savedBooking.getTotalAmount(),
-                allocatedSeatIds
-        );
     }
 
     @Transactional(readOnly = true)

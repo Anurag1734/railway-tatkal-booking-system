@@ -17,6 +17,11 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
 jwt:
   secret: 7f3c9a2e81d64b5f93a17c8e42d0ab6f5c91e7d34a8b26f019d5e63c74a92b18
   expiration: 86400000
