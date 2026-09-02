@@ -9,9 +9,13 @@ import com.railway.tatkal.train.entity.TrainRun;
 import com.railway.tatkal.train.repository.SeatRepository;
 import com.railway.tatkal.train.repository.TrainRunRepository;
 import com.railway.tatkal.common.exception.SeatNotAvailableException;
+import com.railway.tatkal.user.entity.User;
+import com.railway.tatkal.user.repository.UserRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,19 +24,22 @@ import java.util.List;
 @Service
 public class SeatInventoryService {
 
-    private final SeatInventoryRepository seatInventoryRepository;
-    private final SeatRepository seatRepository;
-    private final TrainRunRepository trainRunRepository;
+        private final SeatInventoryRepository seatInventoryRepository;
+        private final SeatRepository seatRepository;
+        private final TrainRunRepository trainRunRepository;
+        private final UserRepository userRepository;
 
-    public SeatInventoryService(
-            SeatInventoryRepository seatInventoryRepository,
-            SeatRepository seatRepository,
-            TrainRunRepository trainRunRepository
-    ) {
+        public SeatInventoryService(
+                SeatInventoryRepository seatInventoryRepository,
+                SeatRepository seatRepository,
+                TrainRunRepository trainRunRepository,
+                UserRepository userRepository
+        ) {
         this.seatInventoryRepository = seatInventoryRepository;
         this.seatRepository = seatRepository;
         this.trainRunRepository = trainRunRepository;
-    }
+        this.userRepository = userRepository;
+        }
 
     @Transactional
     public void initializeInventory(
@@ -100,37 +107,57 @@ public class SeatInventoryService {
             );
         }
 
-    @Transactional
-    public SeatInventoryResponse holdSeat(
-            Long trainRunId,
-            Long seatId
-    ) {
+        @Transactional
+        public SeatInventoryResponse holdSeat(Long trainRunId, Long seatId) {
 
-        SeatInventory inventory =
-                seatInventoryRepository
-                        .findByTrainRunIdAndSeatId(
-                                trainRunId,
-                                seatId
-                        )
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Seat inventory not found"
+                Authentication authentication =
+                        SecurityContextHolder.getContext().getAuthentication();
+
+                String email = authentication.getName();
+
+                User user = userRepository.findByEmail(email)
+                        .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+                SeatInventory inventory =
+                        seatInventoryRepository
+                                .findByTrainRunIdAndSeatId(
+                                        trainRunId,
+                                        seatId
                                 )
-                        );
+                                .orElseThrow(() ->
+                                        new IllegalArgumentException(
+                                                "Seat inventory not found"
+                                        )
+                                );
 
-        if (inventory.getStatus() != SeatStatus.AVAILABLE) {
-            throw new SeatNotAvailableException(
-                    "Seat is not available"
-            );
+                if (inventory.getStatus() != SeatStatus.AVAILABLE) {
+                throw new SeatNotAvailableException(
+                        "Seat is not available"
+                );
+                }
+
+                inventory.hold(user, LocalDateTime.now().plusMinutes(5));
+
+                SeatInventory saved =
+                        seatInventoryRepository.save(inventory);
+
+                return toResponse(saved);
         }
 
-        inventory.hold(
-                LocalDateTime.now().plusMinutes(5)
-        );
+    @Transactional
+    public int releaseExpiredHolds() {
 
-        SeatInventory saved =
-                seatInventoryRepository.save(inventory);
+        List<SeatInventory> expiredInventory =
+                seatInventoryRepository
+                        .findByStatusAndHeldUntilBefore(
+                                SeatStatus.HELD,
+                                LocalDateTime.now()
+                        );
 
-        return toResponse(saved);
+        for (SeatInventory inventory : expiredInventory) {
+            inventory.release();
+        }
+
+        return expiredInventory.size();
     }
 }

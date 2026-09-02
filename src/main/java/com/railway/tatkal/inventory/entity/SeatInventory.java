@@ -1,5 +1,6 @@
 package com.railway.tatkal.inventory.entity;
 
+import com.railway.tatkal.user.entity.User;
 import com.railway.tatkal.train.entity.Seat;
 import com.railway.tatkal.train.entity.TrainRun;
 import jakarta.persistence.*;
@@ -38,6 +39,13 @@ public class SeatInventory {
             foreignKey = @ForeignKey(name = "fk_inventory_seat")
     )
     private Seat seat;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "held_by_user_id",
+            foreignKey = @ForeignKey(name = "fk_inventory_hold_user")
+    )
+    private User heldByUser;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
@@ -87,39 +95,56 @@ public class SeatInventory {
         return version;
     }
 
-    public void hold(LocalDateTime holdUntil) {
+    public User getHeldByUser() {
+        return heldByUser;
+    }
 
+    public void hold(User user, LocalDateTime holdUntil) {
         if (status != SeatStatus.AVAILABLE) {
-            throw new IllegalStateException(
-                    "Seat is not available"
-            );
+            throw new IllegalStateException("Seat is not available");
         }
 
         this.status = SeatStatus.HELD;
         this.heldUntil = holdUntil;
+        this.heldByUser = user;
     }
 
-    public void confirmBooking() {
-
+    public void confirmBooking(User user, LocalDateTime now) {
         if (status != SeatStatus.HELD) {
-            throw new IllegalStateException(
-                    "Seat is not held"
-            );
+            throw new IllegalStateException("Seat is not held");
+        }
+
+        if (heldUntil == null || !heldUntil.isAfter(now)) {
+            throw new IllegalStateException("Seat hold has expired");
+        }
+
+        if (heldByUser == null || !heldByUser.getId().equals(user.getId())) {
+            throw new IllegalStateException("Seat is held by another user");
         }
 
         this.status = SeatStatus.BOOKED;
         this.heldUntil = null;
+        this.heldByUser = null;
     }
 
     public void release() {
-
         if (status != SeatStatus.HELD) {
-            throw new IllegalStateException(
-                    "Only held seats can be released"
-            );
+            throw new IllegalStateException("Only held seats can be released");
         }
 
         this.status = SeatStatus.AVAILABLE;
         this.heldUntil = null;
+        this.heldByUser = null;
+    }
+
+    public void releaseFromBooking() {
+
+        if (status != SeatStatus.BOOKED) {
+            throw new IllegalStateException(
+                    "Only booked seats can be released"
+            );
+        }
+
+        this.status = SeatStatus.AVAILABLE;
     }
 }
