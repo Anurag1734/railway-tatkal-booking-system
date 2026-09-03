@@ -18,13 +18,21 @@ public interface TrainRepository extends JpaRepository<Train, Long> {
 
     @Query(value = """
         SELECT
+            tr.train_run_id AS trainRunId,
             t.train_id AS trainId,
             t.train_number AS trainNumber,
             t.train_name AS trainName,
             t.train_type AS trainType,
 
+            source_station.station_id AS sourceStationId,
             source_station.station_code AS sourceStation,
+            source_station.station_name AS sourceStationName,
+            source_station.city AS sourceCity,
+
+            destination_station.station_id AS destinationStationId,
             destination_station.station_code AS destinationStation,
+            destination_station.station_name AS destinationStationName,
+            destination_station.city AS destinationCity,
 
             tr.run_date AS runDate,
 

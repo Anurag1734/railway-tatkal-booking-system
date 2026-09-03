@@ -108,7 +108,8 @@ public class SeatInventoryService {
                     inventory.getSeat().getSeatNumber(),
                     inventory.getSeat().getBerthType(),
                     inventory.getSeat().getClassType(),
-                    inventory.getStatus()
+                    inventory.getStatus(),
+                    inventory.getHeldUntil()
             );
         }
 

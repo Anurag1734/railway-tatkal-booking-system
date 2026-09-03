@@ -20,6 +20,38 @@ release.properties
 spring-boot-devtools.properties
 
 # =========================
+# Node / React / Vite
+# =========================
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+
+dist/
+build/
+.vite/
+
+*.tsbuildinfo
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# Local configuration containing secrets
+application-local.yml
+application-local.yaml
+application-local.properties
+
+# =========================
 # IntelliJ IDEA
 # =========================
 .idea/
@@ -50,9 +82,6 @@ out/
 /nbbuild/
 /dist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 # =========================
 # OS generated files
@@ -66,18 +95,6 @@ Desktop.ini
 # =========================
 *.log
 logs/
-
-# =========================
-# Environment / secrets
-# =========================
-.env
-.env.*
-!.env.example
-
-# Local configuration containing secrets
-application-local.yml
-application-local.yaml
-application-local.properties
 
 # =========================
 # Temporary / generated files

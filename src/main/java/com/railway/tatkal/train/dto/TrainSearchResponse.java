@@ -4,12 +4,19 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 public record TrainSearchResponse(
+        Long trainRunId,
         Long trainId,
         String trainNumber,
         String trainName,
         String trainType,
+        Long sourceStationId,
         String sourceStation,
+        String sourceStationName,
+        String sourceCity,
+        Long destinationStationId,
         String destinationStation,
+        String destinationStationName,
+        String destinationCity,
         LocalDate runDate,
         LocalTime departureTime,
         LocalTime arrivalTime

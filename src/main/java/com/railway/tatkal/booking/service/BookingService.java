@@ -6,6 +6,8 @@ import com.railway.tatkal.booking.dto.CreateBookingRequest;
 import com.railway.tatkal.booking.entity.Booking;
 import com.railway.tatkal.booking.entity.BookingPassenger;
 import com.railway.tatkal.booking.entity.SeatAllocation;
+import com.railway.tatkal.common.exception.ForbiddenOperationException;
+import com.railway.tatkal.common.exception.ResourceNotFoundException;
 import com.railway.tatkal.station.entity.Station;
 import com.railway.tatkal.inventory.entity.SeatInventory;
 import com.railway.tatkal.inventory.entity.SeatStatus;
@@ -85,7 +87,7 @@ public class BookingService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found"));
+                        new ResourceNotFoundException("User not found"));
 
         // 2. Validate request
         validateRequest(request);
@@ -93,16 +95,16 @@ public class BookingService {
         // 3. Find train run
         TrainRun trainRun = trainRunRepository.findById(request.trainRunId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException("Train run not found"));
+                        new ResourceNotFoundException("Train run not found"));
 
         // 4. Find stations
         Station sourceStation = stationRepository.findById(request.sourceStationId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException("Source station not found"));
+                        new ResourceNotFoundException("Source station not found"));
 
         Station destinationStation = stationRepository.findById(request.destinationStationId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException("Destination station not found"));
+                        new ResourceNotFoundException("Destination station not found"));
 
     TrainStop sourceStop =
             trainStopRepository
@@ -111,7 +113,7 @@ public class BookingService {
                             sourceStation.getId()
                     )
                     .orElseThrow(() ->
-                            new IllegalArgumentException(
+                            new ResourceNotFoundException(
                                     "Source station is not a stop on this train"
                             )
                     );
@@ -123,7 +125,7 @@ public class BookingService {
                             destinationStation.getId()
                     )
                     .orElseThrow(() ->
-                            new IllegalArgumentException(
+                            new ResourceNotFoundException(
                                     "Destination station is not a stop on this train"
                             )
                     );
@@ -153,7 +155,7 @@ public class BookingService {
                                     seatId
                             )
                             .orElseThrow(() ->
-                                    new IllegalArgumentException(
+                                    new ResourceNotFoundException(
                                             "Seat inventory not found for seat: " + seatId
                                     )
                             );
@@ -344,15 +346,8 @@ public class BookingService {
                     }
             );
 
-            return new BookingResponse(
-                    savedBooking.getId(),
-                    savedBooking.getBookingReference(),
-                    savedBooking.getTrainRun().getId(),
-                    savedBooking.getJourneyDate(),
-                    savedBooking.getSourceStation().getId(),
-                    savedBooking.getDestinationStation().getId(),
-                    savedBooking.getStatus(),
-                    savedBooking.getTotalAmount(),
+            return toBookingResponse(
+                    savedBooking,
                     allocatedSeatIds
             );
 
@@ -384,15 +379,15 @@ public class BookingService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found"));
+                        new ResourceNotFoundException("User not found"));
 
         Booking booking = bookingRepository
                 .findByBookingReference(bookingReference)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("Booking not found"));
+                        new ResourceNotFoundException("Booking not found"));
 
         if (!booking.getUser().getId().equals(user.getId())) {
-            throw new IllegalArgumentException(
+            throw new ForbiddenOperationException(
                     "You are not authorized to access this booking"
             );
         }
@@ -406,15 +401,8 @@ public class BookingService {
                 .map(allocation -> allocation.getSeat().getId())
                 .toList();
 
-        return new BookingResponse(
-                booking.getId(),
-                booking.getBookingReference(),
-                booking.getTrainRun().getId(),
-                booking.getJourneyDate(),
-                booking.getSourceStation().getId(),
-                booking.getDestinationStation().getId(),
-                booking.getStatus(),
-                booking.getTotalAmount(),
+        return toBookingResponse(
+                booking,
                 seatIds
         );
     }
@@ -429,7 +417,7 @@ public class BookingService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found"));
+                        new ResourceNotFoundException("User not found"));
 
         List<Booking> bookings =
                 bookingRepository.findByUserIdOrderByCreatedAtDesc(
@@ -448,15 +436,8 @@ public class BookingService {
                                     )
                                     .toList();
 
-                    return new BookingResponse(
-                            booking.getId(),
-                            booking.getBookingReference(),
-                            booking.getTrainRun().getId(),
-                            booking.getJourneyDate(),
-                            booking.getSourceStation().getId(),
-                            booking.getDestinationStation().getId(),
-                            booking.getStatus(),
-                            booking.getTotalAmount(),
+                    return toBookingResponse(
+                            booking,
                             seatIds
                     );
                 })
@@ -474,17 +455,17 @@ public class BookingService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found"));
+                        new ResourceNotFoundException("User not found"));
 
         // 2. Find booking
         Booking booking =
                 bookingRepository.findByBookingReference(bookingReference)
                         .orElseThrow(() ->
-                                new IllegalArgumentException("Booking not found"));
+                                new ResourceNotFoundException("Booking not found"));
 
         // 3. Verify ownership
         if (!booking.getUser().getId().equals(user.getId())) {
-            throw new IllegalArgumentException(
+            throw new ForbiddenOperationException(
                     "You are not authorized to cancel this booking"
             );
         }
@@ -514,7 +495,7 @@ public class BookingService {
                                     allocation.getSeat().getId()
                             )
                             .orElseThrow(() ->
-                                    new IllegalStateException(
+                                    new ResourceNotFoundException(
                                             "Seat inventory not found"
                                     )
                             );
@@ -541,15 +522,8 @@ public class BookingService {
         bookingRepository.save(booking);
         seatAllocationRepository.saveAll(allocations);
 
-        return new BookingResponse(
-                booking.getId(),
-                booking.getBookingReference(),
-                booking.getTrainRun().getId(),
-                booking.getJourneyDate(),
-                booking.getSourceStation().getId(),
-                booking.getDestinationStation().getId(),
-                booking.getStatus(),
-                booking.getTotalAmount(),
+        return toBookingResponse(
+                booking,
                 seatIds
         );
     }
@@ -595,5 +569,57 @@ public class BookingService {
                     "Duplicate seat IDs are not allowed"
             );
         }
+    }
+
+    private BookingResponse toBookingResponse(
+            Booking booking,
+            List<Long> seatIds
+    ) {
+        List<BookingResponse.BookingPassengerResponse> passengers =
+                bookingPassengerRepository.findByBookingId(booking.getId())
+                        .stream()
+                        .map(passenger -> new BookingResponse.BookingPassengerResponse(
+                                passenger.getName(),
+                                passenger.getAge(),
+                                passenger.getGender(),
+                                passenger.getBerthPreference(),
+                                passenger.getConcessionType()
+                        ))
+                        .toList();
+
+        List<BookingResponse.SeatAllocationResponse> seatAllocations =
+                seatAllocationRepository.findByBookingId(booking.getId())
+                        .stream()
+                        .map(allocation -> new BookingResponse.SeatAllocationResponse(
+                                allocation.getSeat().getId(),
+                                allocation.getSeat().getCoach().getCoachCode(),
+                                allocation.getSeatNumber(),
+                                allocation.getBerthType(),
+                                allocation.getStatus()
+                        ))
+                        .toList();
+
+        return new BookingResponse(
+                booking.getId(),
+                booking.getBookingReference(),
+                booking.getTrainRun().getId(),
+                booking.getJourneyDate(),
+                booking.getSourceStation().getId(),
+                booking.getDestinationStation().getId(),
+                booking.getStatus(),
+                booking.getTotalAmount(),
+                seatIds,
+                booking.getTrainRun().getTrain().getTrainNumber(),
+                booking.getTrainRun().getTrain().getTrainName(),
+                booking.getTrainRun().getTrain().getTrainType(),
+                booking.getSourceStation().getCode(),
+                booking.getSourceStation().getName(),
+                booking.getDestinationStation().getCode(),
+                booking.getDestinationStation().getName(),
+                booking.getCreatedAt(),
+                booking.getUpdatedAt(),
+                passengers,
+                seatAllocations
+        );
     }
 }

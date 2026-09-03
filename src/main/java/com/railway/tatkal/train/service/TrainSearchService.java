@@ -28,12 +28,19 @@ public class TrainSearchService {
 
         return results.stream()
                 .map(result -> new TrainSearchResponse(
+                        result.getTrainRunId(),
                         result.getTrainId(),
                         result.getTrainNumber(),
                         result.getTrainName(),
                         result.getTrainType(),
+                        result.getSourceStationId(),
                         result.getSourceStation(),
+                        result.getSourceStationName(),
+                        result.getSourceCity(),
+                        result.getDestinationStationId(),
                         result.getDestinationStation(),
+                        result.getDestinationStationName(),
+                        result.getDestinationCity(),
                         result.getRunDate(),
                         result.getDepartureTime(),
                         result.getArrivalTime()
